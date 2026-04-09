@@ -1,4 +1,4 @@
-# STS2 存档修改器
+# STS2 存档修改器 ![浏览量](https://visitor-badge.laobi.icu/badge?page_id=Izayoi9/sts2_save_editor)
 
 杀戮尖塔 2 (Slay the Spire 2) 存档修改器，提供图形化界面编辑游戏存档。
 
