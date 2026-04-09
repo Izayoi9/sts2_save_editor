@@ -6,7 +6,7 @@ from pathlib import Path
 # 将项目根目录加入 sys.path，确保模块能正确导入
 sys.path.insert(0, str(Path(__file__).parent))
 
-__version__ = "1.0.0"
+from __version__ import __version__
 
 from ui.app import App
 

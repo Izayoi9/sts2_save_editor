@@ -25,7 +25,7 @@ from ui.tab_run import RunTab
 from ui.tab_stats import StatsTab
 
 
-from main import __version__
+from __version__ import __version__
 
 
 class ProfileSelector(ctk.CTkToplevel):
