@@ -78,12 +78,22 @@ CHARACTER_NAMES: dict[str, str] = {
 # ── current_run.save 数据模型 ──────────────────────────────────────────
 
 
+class Enchantment(BaseModel):
+    """卡牌附魔数据。"""
+    model_config = ConfigDict(extra="allow")
+
+    id: str = ""
+    amount: int = 1
+
+
 class CardEntry(BaseModel):
     """牌组中的一张卡牌。"""
     model_config = ConfigDict(extra="allow")
 
     id: str
     floor_added_to_deck: int = 1
+    current_upgrade_level: int = 0
+    enchantment: Enchantment | None = None
 
 
 class RelicEntry(BaseModel):
