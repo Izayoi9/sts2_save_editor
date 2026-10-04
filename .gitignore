@@ -9,6 +9,12 @@ build/
 *.egg
 .eggs/
 
+# 打包产物与开发期辅助文件：不进版本库
+# （可执行文件通过 GitHub Releases 分发；测试脚本与本地化提取脚本
+#   保留在本地，供维护时使用）
+/tests/
+/tools/
+
 # PyInstaller
 *.manifest
 
@@ -34,3 +40,11 @@ Thumbs.db
 current_run.txt
 current_run2.txt
 progress.txt
+
+# 从游戏本体提取的本地化原文（可由 tools/extract_localization.py 重新生成，
+# 属游戏素材，不纳入版本库）
+tools/localization_zh/
+
+# 本机 Mod 角色名扫描缓存（因机器而异，且可随时重新扫描生成）
+character_names_cache.json
+*.json.bak

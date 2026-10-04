@@ -1,4 +1,4 @@
-"""ID 图鉴 — 以表格形式查看所有卡牌/遗物/怪物/事件的内部 ID 和中文名。"""
+"""ID 图鉴 — 以表格形式查看所有卡牌/遗物/药水/怪物/事件的内部 ID 和中文名。"""
 
 from typing import Any
 
@@ -8,12 +8,15 @@ from core import load_name_map
 
 
 # 按前缀分类
+# 注：译名表里还有 65 条 POTION.*，此前漏了对应分类，导致药水在图鉴中查不到。
 _CATEGORIES: list[tuple[str, str]] = [
     ("CARD.", "卡牌"),
     ("RELIC.", "遗物"),
+    ("POTION.", "药水"),
     ("ENCOUNTER.", "遭遇"),
     ("MONSTER.", "怪物"),
     ("EVENT.", "事件"),
+    ("ENCHANTMENT.", "附魔"),
     ("ACT.", "章节"),
     ("CHARACTER.", "角色"),
 ]
@@ -64,6 +67,18 @@ class DictionaryTab(ctk.CTkFrame):
         # 搜索防抖
         self._search_after_id: str | None = None
         self._search_var.trace_add("write", lambda *_: self._on_search_debounced())
+
+        # ── 数据范围提示 ──
+        # 图鉴内容取自 id_names_zh.json，只包含游戏本体的条目。
+        # Mod 的卡牌/遗物/药水等不会被收录，这里明确说明，避免玩家
+        # 搜不到自己 Mod 里的东西却以为是工具出错了。
+        ctk.CTkLabel(
+            self,
+            text=("提示：本图鉴仅包含游戏本体的卡牌 / 遗物 / 药水 / 怪物 / 事件等条目，"
+                  "不包含 Mod 添加的内容（Mod 卡牌、遗物、药水等均不会出现在此处）。"),
+            font=ctk.CTkFont(size=11), text_color="gray",
+            anchor="w", justify="left", wraplength=900,
+        ).pack(anchor="w", padx=12, pady=(0, 6))
 
         # ── 分类 Tabview ──
         self._tabview = ctk.CTkTabview(self, command=self._on_tab_switch)

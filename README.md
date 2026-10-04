@@ -9,20 +9,21 @@
 ### 全局进度编辑 (progress.save)
 
 - **角色编辑** — 修改各角色的进阶难度、胜负场次、连胜记录、最快通关时间
-- **全局统计** — 修改总游戏时间、攀爬层数、多人模式进阶等
+- **全局统计** — 修改总游戏时间、攀爬层数、多人模式进阶、总解锁数、旺购积分等
+- **Epoch 解锁** — 勾选/取消各 Epoch 的解锁记录
 
 ### 对局编辑 (current_run.save)
 
-- **玩家状态** — HP、金币、能量、药水栏位、稀有卡概率、药水掉率
+- **玩家状态** — HP、金币、能量、药水栏位、稀有卡概率、药水掉率、持有药水
 - **牌组编辑** — 搜索并添加/删除卡牌，支持中文名和 ID 搜索
 - **遗物编辑** — 搜索并添加/删除遗物
-- **地图编辑** — 修改未访问节点的类型（怪物/精英/休息点/宝箱/商店/事件）
-- **遭遇池 & 事件池** — 编辑精英、普通、事件三个队列的内容
+- **地图编辑** — 修改未访问节点的类型（古代/怪物/精英/休息点/宝箱/商店/事件）
+- **遭遇池 & 事件池** — 编辑精英、普通、事件三个队列的内容，支持按 Act 切换
 - **概率 & RNG** — 调控问号房概率、RNG 计数器
 
 ### 工具
 
-- **ID 图鉴** — 查看全部 1400+ 条卡牌/遗物/怪物/事件的内部 ID 与中文名对照表，支持搜索
+- **ID 图鉴** — 查看全部 1650 条卡牌/遗物/药水/遭遇/怪物/事件/附魔的内部 ID 与中文名对照表，支持搜索（仅含游戏本体内容，不含 Mod 条目）
 - **使用说明** — 内置完整的功能说明和注意事项
 
 ## 截图
@@ -54,14 +55,23 @@ python main.py
 ## 存档位置
 
 ```
-%APPDATA%/SlayTheSpire2/steam/{Steam ID}/profile{1,2,3}/saves/
-├── progress.save          # 全局进度
-├── progress.save.backup   # 游戏自动备份
-├── current_run.save       # 当前对局（仅对局进行中存在）
-└── current_run.save.backup
+%APPDATA%/SlayTheSpire2/steam/{Steam ID}/
+├── profile{1,2,3}/saves/           # 普通档
+│   ├── progress.save               # 全局进度
+│   ├── progress.save.backup        # 游戏自动备份
+│   ├── current_run.save            # 当前对局（仅对局进行中存在）
+│   ├── current_run.save.backup
+│   └── history/*.run               # 已完成对局的历史记录（本工具不编辑）
+├── modded/profile{1,2,3}/saves/    # Mod 档，结构同上
+└── backup/                         # 游戏自身的额外备份副本
 ```
 
 启动修改器后会自动扫描上述路径，也可以手动选择文件。
+
+> 说明：`history/*.run` 是独立的历史对局格式（用 `players[].character` 而非
+> `character_id`，另有 `win` / `was_abandoned` / `killed_by_encounter` 等字段），
+> `schema_version` 与进行中的对局也不相同。本工具只读写 `progress.save` 与
+> `current_run.save`，不会改动历史记录。
 
 ## 备份与恢复
 
@@ -104,6 +114,56 @@ sts2_save_editor/
 - 🔧 Pull Request
 
 ## 更新日志
+
+### v1.4.0
+
+**适配游戏更新后的存档结构。**
+
+- **对局存档 schema 14 → 16**：`current_run.save` 的 `schema_version` 已升到 16，旧版会误报"版本不兼容"。现在识别 14/15/16，并补全了新增字段：`ascension`、`game_mode`、`current_act_index`、`modifiers`、`map_point_history`、`pre_finished_room`、`shared_relic_grab_bag`、`map_drawings`、`num_reloads`、`extra_fields`
+- **进度存档新增统计**：补全 `ancient_stats`（古代战绩）、`encounter_stats`（遭遇战绩）、`enemy_stats`（怪物战绩）、`total_unlocks`、`card_stats`；全局统计页新增总解锁数、旺购积分、当前分数与战绩概览
+- **Epoch 解锁编辑**：新增 Epoch 勾选列表，可查看与调整解锁记录
+- **药水编辑**：玩家状态页新增药水增删，槽位按顺序自动分配
+- **多 Act 支持**：遭遇池/事件池与地图不再只读取第一个 Act。游戏会同时保存 3 个 Act，但只有当前 Act 带 `saved_map`；现在按 Act 切换编辑，且不会给没有地图的 Act 注入空白地图
+- **新增"古代"节点类型**：地图起点为 `type: "ancient"`（`saved_map.start`），v1.3.0 未定义该类型，会显示成未知的灰色节点；现在有独立配色与原生的"起点"标记
+- **修复存档污染缺陷**（重要）：
+  - 地图节点的 `can_modify` 在存档中是**可选**字段，游戏只在为 `true` 时写入。旧版默认值为 `True` 且全量写回，会把游戏标记为"不可修改"的宝箱节点改成可修改，并给所有节点补上该键
+  - 旧版会给 `players[].deck[]` 的每张牌注入存档中并不存在的 `current_upgrade_level` 与 `enchantment` 字段
+  - 旧版会给没有地图的 Act 注入一份默认 `saved_map`
+  - 旧版会把"最快获胜时间 = -1（尚未通关）"写成 0 秒
+  - 现在写出使用 `model_dump(exclude_unset=True)`：只写回原本存在或本次确实编辑过的字段
+- **写入策略改进**：改为「先写临时文件再替换」的原子写入，并先写 `.save.backup` 再写主文件，缩小两者不一致的时间窗口
+- **字段顺序对齐游戏**：模型字段声明顺序与游戏写出的字母序一致，写回的存档可用备份直接逐行比对
+- **译名扩充**：`id_names_zh.json` 从 1427 条扩充到 1650 条，补上缺失的 64 条药水、古代事件（特兹卡塔拉/佩尔/瓦库/欧洛巴斯/达弗/坦克斯/诺奴佩普）、3 条千足虫节点等；译名从游戏本体 `SlayTheSpire2.pck` 内的简中本地化提取，非人工翻译
+- **修正**：`CHARACTER.RANDOM_CHARACTER` 的游戏内显示名为「随机」，此前误作「随机角色」
+
+### v1.4.1
+
+- **修复 Mod 角色在角色编辑页显示为超长内部 ID**：此前角色名取自一份只覆盖 6 个原版角色的硬编码表，Mod 角色取不到就回退显示完整 ID（如 `CHARACTER.LUST_TRAVEL2_CHARACTER_FOX_HIME`），把标签栏撑到极宽。
+
+  现在改为**运行时动态解析**，不硬编码任何 Mod 角色译名——不同玩家装的 Mod 完全不同，写死必然失效：
+
+  1. `id_names_zh.json`：仅原版角色（随工具发布，**不含任何 Mod 条目**）
+  2. **自动扫描该玩家本机的 Mod 资源包**：从游戏 `mods/` 目录与 Steam 创意工坊的 `.pck` 中，读取 Mod 作者自带的简中本地化（`<角色ID>.title` / `.name` 等），拿到真正的角色名
+  3. 仍无结果时，按 Mod 角色 ID 的固定形态 `<模组前缀>_CHARACTER_<角色名>` 反推简短可读名，保证界面永远不会出现长 ID
+
+  实现要点：
+  - 新增 `character_names.py` 专门负责此事；`core.get_character_name()` 仍是统一入口
+  - 自动定位 Steam：注册表 `SteamPath` → 常见路径兜底 → 解析 `libraryfolders.vdf`，因此换盘、多库、创意工坊都能找到
+  - 扫描结果只写入本机缓存 `character_names_cache.json`（已 gitignore），**不回写** `id_names_zh.json`——否则等于把"本机装了什么 Mod"固化进随工具发布的文件
+  - 全盘扫描实测约 0.3 秒，命中缓存后瞬时；任何一步失败都逐级回退，不影响使用
+  - 说明：Mod 角色没有进入游戏的 `characters` 本地化表（游戏日志可见 `Key '...' not found in table 'characters'`），**游戏本体界面也是显示内部 ID 的**。所以准确中文名只能来自 Mod 作者自己的资源包
+- **新增 `tests/test_character_name.py`**：不依赖任何真实 Mod，用临时构造的假 `.pck` 验证扫描器认名字、拒长文本、只收中文；并断言译名表里**不存在**硬编码的 Mod 角色条目
+
+### v1.4.2
+
+- **ID 图鉴页新增范围说明**：页面顶部加入提示——本图鉴仅包含游戏本体条目，**不包含 Mod 添加的卡牌 / 遗物 / 药水等内容**，避免玩家搜不到 Mod 内容时误以为工具出错
+- **补上遗漏的图鉴分类**：译名表里实际有 65 条 `POTION.*` 与 25 条 `ENCHANTMENT.*`，但页面上没有对应分类，导致药水与附魔在图鉴中查不到。现新增「药水」「附魔」两个分类
+- **新增 `tests/test_dictionary_coverage.py`**：断言译名表里每个前缀都有对应分类（防止以后再加内容时又漏分类）、译名表不含 Mod 条目、页面提示文案存在
+- UI 冒烟测试新增"角色标签不超宽"断言
+
+### v1.4.0
+
+**适配游戏更新后的存档结构（摘要，详见下方各条）。**
 
 ### v1.3.0
 

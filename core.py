@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +16,12 @@ from models import CurrentRunData, ProgressData
 logger = logging.getLogger(__name__)
 
 # 已知兼容的 schema 版本
+# progress.save: 21（版本号未变，但新增 ancient_stats / encounter_stats /
+#                enemy_stats / total_unlocks 等顶层字段）
+# current_run.save: 14 → 16（新增 ascension / game_mode / modifiers /
+#                map_point_history / pre_finished_room / shared_relic_grab_bag 等）
 KNOWN_PROGRESS_VERSIONS = {21}
-KNOWN_RUN_VERSIONS = {14}
+KNOWN_RUN_VERSIONS = {14, 15, 16}
 
 
 @dataclass
@@ -99,18 +104,34 @@ def _load_save(path: Path, model: type[BaseModel]) -> Any:
     return model.model_validate(data)
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """先写同目录临时文件再 replace，避免写到一半留下损坏的存档。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _save_file(data: BaseModel, path: Path) -> None:
-    """写入存档，同时写入 .save 和 .save.backup，创建 .bak 用户备份。"""
+    """写入存档，同时写入 .save 和 .save.backup，创建 .bak 用户备份。
+
+    关键：使用 ``exclude_unset=True``。
+
+    游戏存档中很多字段是"可选"的，缺失本身携带语义。例如地图节点的
+    ``can_modify`` 只在为 true 时写入，宝箱节点则不带该键。若按模型默认值
+    全量 dump，会把游戏原本没有的键补进存档（v1.3.0 的行为），
+    相当于替游戏改了数据。``exclude_unset`` 保证只写回"原本存在或本次
+    确实被编辑过"的字段。
+    """
     if path.exists():
         user_backup = path.with_suffix(".save.bak")
         shutil.copy2(path, user_backup)
 
-    json_data = data.model_dump(mode="json")
-    text = json.dumps(json_data, indent=2, ensure_ascii=False)
+    json_data = data.model_dump(mode="json", exclude_unset=True)
+    text = json.dumps(json_data, indent=2, ensure_ascii=False) + "\n"
 
-    path.write_text(text, encoding="utf-8")
-    game_backup = path.with_suffix(".save.backup")
-    game_backup.write_text(text, encoding="utf-8")
+    # 先写游戏侧的 .backup，再替换主文件：任一时刻两者内容一致的时间窗口最小
+    _atomic_write_text(path.with_suffix(".save.backup"), text)
+    _atomic_write_text(path, text)
 
 
 def load_progress(path: Path) -> ProgressData:
@@ -179,7 +200,13 @@ _name_map_loaded: bool = False
 
 
 def load_name_map() -> dict[str, str]:
-    """加载 id_names_zh.json 名称映射表，懒加载 + 缓存。加载失败允许下次重试。"""
+    """加载 id_names_zh.json 名称映射表，懒加载 + 缓存。加载失败允许下次重试。
+
+    在静态译名表之上叠加本机扫描出的 Mod 角色名（来自 character_names 的
+    缓存），这样译名在界面上处处一致：原版内容走静态表，Mod 角色走本机缓存。
+    叠加只发生在内存里，**不会**回写 id_names_zh.json——那会把"本机装了什么
+    Mod"固化进随工具发布的文件。
+    """
     global _name_map, _name_map_loaded
     if _name_map_loaded:
         return _name_map
@@ -191,6 +218,16 @@ def load_name_map() -> dict[str, str]:
         _name_map_loaded = True
     except Exception as e:
         logger.warning("无法加载名称映射 %s: %s", json_path, e)
+        return _name_map
+
+    # 叠加本机 Mod 角色名（失败不影响静态表可用）
+    try:
+        from character_names import mod_character_names
+
+        for char_id, name in mod_character_names().items():
+            _name_map.setdefault(char_id, name)
+    except Exception as e:
+        logger.info("叠加本机 Mod 角色名跳过：%s", e)
     return _name_map
 
 
@@ -205,3 +242,34 @@ def get_display_name(game_id: str) -> str:
 def get_zh_name(game_id: str) -> str:
     """仅返回中文名，找不到则返回 ID。"""
     return load_name_map().get(game_id, game_id)
+
+
+# ── 角色显示名 ────────────────────────────────────────────────────────
+#
+# 具体解析逻辑（含 Mod 角色的动态提取）在 character_names.py。
+# 这里只做转发，保持 core.get_character_name 作为统一入口。
+
+
+def get_character_name(character_id: str) -> str:
+    """角色显示名：译名表 → 本机 Mod 资源包 → 从 ID 推导的可读名。
+
+    不同玩家的 Mod 组合不同，因此 Mod 角色译名不在代码或译名表里写死，
+    而是在读取存档时扫描该玩家本机的 Mod 资源包得到（结果会落盘缓存）。
+    任何一步失败都不会抛异常，最差也会返回一个简短可读名，
+    绝不会把 ``CHARACTER.XXX_CHARACTER_YYY`` 这种长 ID 显示到界面上。
+    """
+    from character_names import resolve_character_name
+
+    return resolve_character_name(character_id)
+
+
+def discover_mod_character_names() -> int:
+    """扫描本机 Mod 资源包，补充角色名到本机缓存。
+
+    返回**当前可用的 Mod 角色名总数**（不区分本次是否新扫描到），
+    便于界面直接展示"已识别 N 个 Mod 角色名"。
+    """
+    from character_names import mod_character_name_count, scan_and_cache_mod_names
+
+    scan_and_cache_mod_names()
+    return mod_character_name_count()

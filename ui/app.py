@@ -10,6 +10,7 @@ from core import (
     SaveProfile,
     check_schema_version,
     check_run_schema_version,
+    discover_mod_character_names,
     get_discovered_ids,
     load_current_run,
     load_progress,
@@ -228,6 +229,19 @@ class App(ctk.CTk):
         # 更新顶部栏
         self._path_label.configure(text=str(path))
         self._uid_label.configure(text=f"UID: {self._data.unique_id}")
+
+        # Mod 角色名：不同玩家的 Mod 组合不同，这里扫描本机 Mod 资源包，
+        # 把 Mod 角色解析成作者提供的名字（结果落盘缓存，后续启动几乎瞬时）。
+        # 失败不影响使用——角色名会退回可读的推导名。
+        self._mod_name_note = ""
+        try:
+            found = discover_mod_character_names()
+            if found:
+                self._mod_name_note = f"（已识别 {found} 个 Mod 角色名）"
+                self._uid_label.configure(
+                    text=f"UID: {self._data.unique_id} {self._mod_name_note}")
+        except Exception:
+            pass
 
         # 更新对局按钮状态
         self._btn_run.configure(state="normal" if self._run_data else "disabled")

@@ -41,7 +41,10 @@ ENCHANTMENT_IDS: list[str] = [
 ]
 
 # 地图节点类型中文映射
+# "ancient" 为游戏后续版本加入的古代事件节点（即 saved_map.start）。
+# v1.3.0 未定义该类型，起点节点只能落到未知类型的兜底配色上。
 _MAP_TYPE_ZH: dict[str, str] = {
+    "ancient": "古代",
     "monster": "怪物",
     "elite": "精英",
     "rest_site": "休息点",
@@ -114,6 +117,73 @@ class PlayerStatusTab(ctk.CTkScrollableFrame):
         )
         self.potion_reward.pack(anchor="w", padx=16, pady=3)
 
+        # 药水（schema 16 的 players[].potions）
+        section3 = ctk.CTkLabel(self, text="药水", font=ctk.CTkFont(size=15, weight="bold"))
+        section3.pack(anchor="w", padx=16, pady=(16, 4))
+
+        self._potions = [
+            (p.id, getattr(p, "slot_index", 0)) for p in player.potions
+        ]
+        self._potions_changed = False
+        self._potion_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._potion_frame.pack(fill="x", padx=16, pady=(0, 4))
+
+        potion_bar = ctk.CTkFrame(self, fg_color="transparent")
+        potion_bar.pack(fill="x", padx=16, pady=(0, 8))
+
+        self._potion_var = ctk.StringVar()
+        ctk.CTkEntry(
+            potion_bar, textvariable=self._potion_var,
+            placeholder_text="输入药水 ID，如 POTION.FIRE_POTION", width=340,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            potion_bar, text="添加药水", width=80, command=self._add_potion,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            potion_bar, text="槽位按顺序自动分配",
+            font=ctk.CTkFont(size=11), text_color="gray",
+        ).pack(side="left", padx=(8, 0))
+
+        self._rebuild_potions()
+
+    def _rebuild_potions(self) -> None:
+        for w in self._potion_frame.winfo_children():
+            w.destroy()
+        if not self._potions:
+            ctk.CTkLabel(
+                self._potion_frame, text="（无药水）",
+                font=ctk.CTkFont(size=12), text_color="gray",
+            ).pack(anchor="w")
+            return
+        for i, (pid, slot) in enumerate(self._potions):
+            row = ctk.CTkFrame(self._potion_frame, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            ctk.CTkLabel(
+                row, text=f"槽位 {slot}: {get_display_name(pid)}",
+                anchor="w", font=ctk.CTkFont(size=12),
+            ).pack(side="left", fill="x", expand=True)
+            ctk.CTkButton(
+                row, text="×", width=30, height=26, fg_color="#8B3A3A",
+                hover_color="#6B2A2A",
+                command=lambda idx=i: self._remove_potion(idx),
+            ).pack(side="right")
+
+    def _add_potion(self) -> None:
+        raw = self._potion_var.get().strip()
+        if not raw:
+            return
+        self._potions.append((raw, len(self._potions)))
+        self._potions_changed = True
+        self._potion_var.set("")
+        self._rebuild_potions()
+
+    def _remove_potion(self, index: int) -> None:
+        if 0 <= index < len(self._potions):
+            self._potions.pop(index)
+            self._potions = [(pid, i) for i, (pid, _) in enumerate(self._potions)]
+            self._potions_changed = True
+            self._rebuild_potions()
+
     def apply(self, data: CurrentRunData) -> None:
         if not data.players:
             return
@@ -125,6 +195,16 @@ class PlayerStatusTab(ctk.CTkScrollableFrame):
         player.max_potion_slot_count = self.max_potion_slots.get_value()
         player.odds.card_rarity_odds_value = self.card_rarity.get_value()
         player.odds.potion_reward_odds_value = self.potion_reward.get_value()
+
+        from models import PotionEntry
+
+        # 仅当玩家原本就有 potions 字段，或本次确实改动过药水时才写回。
+        # 否则会把一个"游戏没有的空数组"注入存档。
+        if "potions" in player.__pydantic_fields_set__ or self._potions_changed:
+            player.potions = [
+                PotionEntry(id=pid, slot_index=slot) for pid, slot in self._potions
+            ]
+            player.__pydantic_fields_set__.add("potions")
 
 
 class EnchantmentSelector(ctk.CTkToplevel):
@@ -419,6 +499,8 @@ class DeckTab(ctk.CTkFrame):
         if not data.players:
             return
         data.players[0].deck = list(self._cards)
+        # 整表替换必须显式标记，否则 exclude_unset 不会写出 deck
+        data.players[0].__pydantic_fields_set__.add("deck")
 
     def destroy(self) -> None:
         if self._search_after_id is not None:
@@ -469,6 +551,7 @@ class RelicTab(ctk.CTkFrame):
                 floor_added_to_deck=existing.get(relic_id, floor),
             ))
         player.relics = new_relics
+        player.__pydantic_fields_set__.add("relics")
 
 
 class MapTab(ctk.CTkFrame):
@@ -493,6 +576,7 @@ class MapTab(ctk.CTkFrame):
 
     # 节点类型 → (填充色, 描边色) — 低饱和柔和色调
     _TYPE_STYLES: dict[str, tuple[str, str]] = {
+        "ancient": ("#6A5A8A", "#8A78AC"),   # 古代：偏紫
         "monster": ("#8B3A3A", "#A85454"),   # 暗红
         "elite": ("#6B4C8A", "#8668A4"),     # 暗紫
         "rest_site": ("#3A7D5C", "#4E9972"), # 暗绿
@@ -511,6 +595,7 @@ class MapTab(ctk.CTkFrame):
 
     # 图例中的节点颜色（稍微提亮用于小色块）
     _LEGEND_COLORS: dict[str, str] = {
+        "ancient": "#8A78AC",
         "monster": "#A85454",
         "elite": "#8668A4",
         "rest_site": "#4E9972",
@@ -538,14 +623,24 @@ class MapTab(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         import tkinter as tk
 
-        self._modifications: dict[int, str] = {}
+        self._data = data
+        self._tk = tk
+        # 每个 Act 各自的修改补丁：act_index -> {point_index: new_type}
+        self._modifications: dict[int, dict[int, str]] = {}
+        self._act_index = 0
 
-        act = data.acts[0] if data.acts else None
-        if act is None:
+        # 只有当前 Act 带 saved_map，其余 Act 只有 rooms（saved_map 为 None）
+        self._act_options: list[tuple[int, str]] = [
+            (i, get_zh_name(act.id)) for i, act in enumerate(data.acts)
+            if act.saved_map is not None
+        ]
+        if not self._act_options:
             ctk.CTkLabel(self, text="无地图数据").pack(pady=20)
             return
 
+        act = data.acts[self._act_options[0][0]]
         smap = act.saved_map
+        assert smap is not None
         points = smap.points
         self._visited = {(c.col, c.row) for c in data.visited_map_coords}
 
@@ -574,6 +669,12 @@ class MapTab(ctk.CTkFrame):
             font=ctk.CTkFont(size=12), text_color=self._TEXT_DIM,
         ).pack(side="left", padx=(12, 0))
 
+        # 当前 Act 标识（只有当前 Act 带地图；用于区分进度）
+        ctk.CTkLabel(
+            header, text=f"当前：{get_zh_name(act.id)}",
+            font=ctk.CTkFont(size=12), text_color=self._TEXT_DIM,
+        ).pack(side="right")
+
         # ── 图例 ──
         legend = ctk.CTkFrame(self, fg_color="transparent")
         legend.pack(fill="x", padx=12, pady=(6, 6))
@@ -594,6 +695,7 @@ class MapTab(ctk.CTkFrame):
         # ── Canvas ──
         canvas_frame = ctk.CTkFrame(self, corner_radius=6)
         canvas_frame.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self._canvas_frame = canvas_frame
 
         self._canvas = tk.Canvas(
             canvas_frame, bg=self._BG_COLOR, highlightthickness=0,
@@ -659,75 +761,90 @@ class MapTab(ctk.CTkFrame):
                     fill=line_color, width=line_width,
                 )
 
+        # ── 起点（古代事件节点）──
+        if smap.start is not None:
+            self._draw_node(smap.start, -1, max_row, smap.width, boss_offset,
+                            is_start=True)
+
         # ── 节点 ──
         for i, point in enumerate(points):
-            px, py = self._coord_to_xy(point.coord.col, point.coord.row, max_row, smap.width, boss_offset)
-            is_visited = (point.coord.col, point.coord.row) in self._visited
-            can_edit = point.can_modify and not is_visited
-
-            if is_visited:
-                fill = self._VISITED_FILL
-                outline = self._VISITED_OUTLINE
-            else:
-                style = self._TYPE_STYLES.get(point.type, ("#505A62", "#6A747C"))
-                fill = style[0]
-                outline = style[1]
-
-            # 圆角矩形
-            node_id = self._create_rounded_rect(
-                px - self._NODE_RX, py - self._NODE_RY,
-                px + self._NODE_RX, py + self._NODE_RY,
-                self._NODE_ROUND,
-                fill=fill, outline=outline, width=1.5,
-            )
-
-            # 节点文字
-            type_zh = _MAP_TYPE_ZH.get(point.type, point.type)
-            text_color = self._TEXT_DISABLED if is_visited else self._TEXT_COLOR
-            text_id = self._canvas.create_text(
-                px, py, text=type_zh, fill=text_color,
-                font=("Microsoft YaHei", 9, "bold"),
-            )
-
-            # 底部状态标签
-            if is_visited:
-                self._canvas.create_text(
-                    px, py + self._NODE_RY + 11,
-                    text="已访问", fill=self._TEXT_DISABLED,
-                    font=("Microsoft YaHei", 7),
-                )
-            elif not point.can_modify:
-                self._canvas.create_text(
-                    px, py + self._NODE_RY + 11,
-                    text="锁定", fill=self._TEXT_DISABLED,
-                    font=("Microsoft YaHei", 7),
-                )
-
-            self._node_items[node_id] = (i, point, can_edit)
-            self._node_items[text_id] = (i, point, can_edit)
-            self._node_text_items[node_id] = text_id
-
-            self._canvas.tag_bind(node_id, "<Button-1>", self._on_node_click)
-            self._canvas.tag_bind(text_id, "<Button-1>", self._on_node_click)
-            self._canvas.tag_bind(node_id, "<Enter>", self._on_node_enter)
-            self._canvas.tag_bind(text_id, "<Enter>", self._on_node_enter)
-            self._canvas.tag_bind(node_id, "<Leave>", self._on_node_leave)
-            self._canvas.tag_bind(text_id, "<Leave>", self._on_node_leave)
+            self._draw_node(point, i, max_row, smap.width, boss_offset)
 
         # ── Boss 节点 ──
-        if has_boss and smap.boss:
-            bx = canvas_w // 2
-            by = self._PAD_TOP // 2 + 10
-            brx, bry = 42, 22
-            boss_style = self._TYPE_STYLES["boss"]
-            self._create_rounded_rect(
-                bx - brx, by - bry, bx + brx, by + bry, 10,
-                fill=boss_style[0], outline=boss_style[1], width=2,
-            )
+        if has_boss and smap.boss is not None:
+            self._draw_node(smap.boss, -2, max_row, smap.width, boss_offset,
+                            is_boss=True, canvas_w=canvas_w)
+
+    def _draw_node(
+        self,
+        point: Any,
+        index: int,
+        max_row: int,
+        width: int,
+        boss_offset: int,
+        is_start: bool = False,
+        is_boss: bool = False,
+        canvas_w: int = 0,
+    ) -> None:
+        """绘制单个节点。index < 0 表示起点/Boss，不参与按索引改写。"""
+        if is_boss:
+            px = canvas_w // 2
+            py = self._PAD_TOP // 2 + 10
+            rx, ry = 42, 22
+        else:
+            px, py = self._coord_to_xy(
+                point.coord.col, point.coord.row, max_row, width, boss_offset)
+            rx, ry = self._NODE_RX, self._NODE_RY
+
+        is_visited = (point.coord.col, point.coord.row) in self._visited
+        # 起点与 Boss 不参与按索引修改
+        can_edit = (bool(getattr(point, "can_modify", False))
+                    and not is_visited and index >= 0 and not is_boss)
+
+        if is_visited:
+            fill, outline = self._VISITED_FILL, self._VISITED_OUTLINE
+        else:
+            fill, outline = self._TYPE_STYLES.get(point.type, ("#505A62", "#6A747C"))
+
+        node_id = self._create_rounded_rect(
+            px - rx, py - ry, px + rx, py + ry, self._NODE_ROUND,
+            fill=fill, outline=outline, width=2 if is_boss else 1.5,
+        )
+
+        type_zh = _MAP_TYPE_ZH.get(point.type, point.type)
+        text_color = self._TEXT_DISABLED if is_visited else self._TEXT_COLOR
+        text_id = self._canvas.create_text(
+            px, py, text=type_zh, fill=text_color,
+            font=("Microsoft YaHei", 11 if is_boss else 9, "bold"),
+        )
+
+        # 底部状态标签
+        if is_visited:
             self._canvas.create_text(
-                bx, by, text="Boss",
-                fill=self._TEXT_COLOR, font=("Microsoft YaHei", 11, "bold"),
+                px, py + ry + 11, text="已访问", fill=self._TEXT_DISABLED,
+                font=("Microsoft YaHei", 7),
             )
+        elif is_start:
+            self._canvas.create_text(
+                px, py + ry + 11, text="起点", fill=self._TEXT_DISABLED,
+                font=("Microsoft YaHei", 7),
+            )
+        elif index >= 0 and not getattr(point, "can_modify", False):
+            self._canvas.create_text(
+                px, py + ry + 11, text="锁定", fill=self._TEXT_DISABLED,
+                font=("Microsoft YaHei", 7),
+            )
+
+        self._node_items[node_id] = (index, point, can_edit)
+        self._node_items[text_id] = (index, point, can_edit)
+        self._node_text_items[node_id] = text_id
+
+        self._canvas.tag_bind(node_id, "<Button-1>", self._on_node_click)
+        self._canvas.tag_bind(text_id, "<Button-1>", self._on_node_click)
+        self._canvas.tag_bind(node_id, "<Enter>", self._on_node_enter)
+        self._canvas.tag_bind(text_id, "<Enter>", self._on_node_enter)
+        self._canvas.tag_bind(node_id, "<Leave>", self._on_node_leave)
+        self._canvas.tag_bind(text_id, "<Leave>", self._on_node_leave)
 
     def _create_rounded_rect(
         self, x1: int, y1: int, x2: int, y2: int, r: int, **kwargs: Any,
@@ -784,8 +901,10 @@ class MapTab(ctk.CTkFrame):
         menu.tk_popup(event.x_root, event.y_root)
 
     def _set_node_type(self, point_idx: int, new_type: str, item_id: int) -> None:
-        """更新节点类型（视觉 + 数据）。"""
-        self._modifications[point_idx] = new_type
+        """更新节点类型（视觉 + 数据）。只允许对普通节点（index >= 0）操作。"""
+        if point_idx < 0:
+            return
+        self._modifications.setdefault(self._act_index, {})[point_idx] = new_type
 
         style = self._TYPE_STYLES.get(new_type, ("#505A62", "#6A747C"))
         # 找到 polygon item（可能点击的是 text）
@@ -809,7 +928,7 @@ class MapTab(ctk.CTkFrame):
         if info is None:
             return
         point_idx, point, can_edit = info
-        current_type = self._modifications.get(point_idx, point.type)
+        current_type = self._modifications.get(self._act_index, {}).get(point_idx, point.type)
         type_zh = _MAP_TYPE_ZH.get(current_type, current_type)
         status = "可编辑" if can_edit else "不可编辑"
 
@@ -841,16 +960,27 @@ class MapTab(ctk.CTkFrame):
         self._tooltip_ids.clear()
 
     def apply(self, data: CurrentRunData) -> None:
-        if not data.acts:
-            return
-        points = data.acts[0].saved_map.points
-        for idx, new_type in self._modifications.items():
-            if idx < len(points):
-                points[idx].type = new_type
+        """把各 Act 的类型修改写回（仅对当前存在地图的 Act）。"""
+        for act_index, patch in self._modifications.items():
+            if act_index >= len(data.acts):
+                continue
+            smap = data.acts[act_index].saved_map
+            if smap is None:
+                continue
+            points = smap.points
+            for idx, new_type in patch.items():
+                if 0 <= idx < len(points):
+                    points[idx].type = new_type
+                    # 手动改过类型的节点必须显式标记集合，确保写出
+                    points[idx].__pydantic_fields_set__.add("type")
 
 
 class EncounterPoolTab(ctk.CTkScrollableFrame):
-    """子 Tab: 遭遇池 & 事件池编辑。"""
+    """子 Tab: 遭遇池 & 事件池编辑。
+
+    存档中每个 Act 有独立的遭遇/事件池（当前对局的 3 个 Act 会同时存在），
+    因此这里提供 Act 切换，编辑结果按 Act 分别保留。
+    """
 
     def __init__(
         self,
@@ -860,15 +990,53 @@ class EncounterPoolTab(ctk.CTkScrollableFrame):
     ) -> None:
         super().__init__(master, **kwargs)
 
-        act = data.acts[0] if data.acts else None
-        if act is None:
+        self._data = data
+        if not data.acts:
             ctk.CTkLabel(self, text="无数据").pack(pady=20)
             return
 
-        rooms = act.rooms
+        self._act_index = 0
+        # act_index -> {"elite": [...], "normal": [...], "event": [...]}
+        self._edits: dict[int, dict[str, list[str]]] = {}
+
+        # ── Act 切换 ──
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=12, pady=(10, 0))
+        ctk.CTkLabel(
+            bar, text="遭遇池 & 事件池", font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(side="left")
+        self._act_selector = ctk.CTkOptionMenu(
+            bar, values=[get_zh_name(a.id) for a in data.acts],
+            width=160, command=self._on_act_change,
+        )
+        self._act_selector.pack(side="right")
+
+        # 动态内容容器
+        self._body = ctk.CTkFrame(self, fg_color="transparent")
+        self._body.pack(fill="both", expand=True)
+
+        self._build_act(0)
+
+    def _on_act_change(self, choice: str) -> None:
+        try:
+            idx = self._act_selector.cget("values").index(choice)
+        except (ValueError, AttributeError):
+            return
+        self._build_act(idx)
+
+    def _build_act(self, act_index: int) -> None:
+        # 先保存当前 Act 的编辑
+        self._stash_current()
+        self._act_index = act_index
+
+        for w in self._body.winfo_children():
+            w.destroy()
+
+        rooms = self._data.acts[act_index].rooms
+        saved = self._edits.get(act_index)
 
         # 访问计数（只读）
-        info = ctk.CTkFrame(self)
+        info = ctk.CTkFrame(self._body)
         info.pack(fill="x", padx=8, pady=(8, 4))
         ctk.CTkLabel(
             info,
@@ -881,41 +1049,55 @@ class EncounterPoolTab(ctk.CTkScrollableFrame):
         ).pack(anchor="w", padx=8, pady=4)
 
         # Boss
-        boss_display = get_display_name(rooms.boss_id)
         ctk.CTkLabel(
-            self, text=f"Boss: {boss_display}", font=ctk.CTkFont(size=13),
+            self._body, text=f"Boss: {get_display_name(rooms.boss_id)}",
+            font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=16, pady=(8, 4))
 
         name_map = load_name_map()
 
-        # 精英遭遇池
         self._elite_editor = ListEditor(
-            self, title="精英遭遇池", items=rooms.elite_encounter_ids,
+            self._body, title="精英遭遇池",
+            items=saved["elite"] if saved else rooms.elite_encounter_ids,
             name_map=name_map, height=120,
         )
         self._elite_editor.pack(fill="x", padx=8, pady=4)
 
-        # 普通遭遇池
         self._normal_editor = ListEditor(
-            self, title="普通遭遇池", items=rooms.normal_encounter_ids,
+            self._body, title="普通遭遇池",
+            items=saved["normal"] if saved else rooms.normal_encounter_ids,
             name_map=name_map, height=120,
         )
         self._normal_editor.pack(fill="x", padx=8, pady=4)
 
-        # 事件池
         self._event_editor = ListEditor(
-            self, title="事件池", items=rooms.event_ids,
+            self._body, title="事件池",
+            items=saved["event"] if saved else rooms.event_ids,
             name_map=name_map, height=120,
         )
         self._event_editor.pack(fill="x", padx=8, pady=4)
 
-    def apply(self, data: CurrentRunData) -> None:
-        if not data.acts:
+    def _stash_current(self) -> None:
+        """把当前编辑控件的值暂存到 _edits。"""
+        if not hasattr(self, "_elite_editor"):
             return
-        rooms = data.acts[0].rooms
-        rooms.elite_encounter_ids = self._elite_editor.get_items()
-        rooms.normal_encounter_ids = self._normal_editor.get_items()
-        rooms.event_ids = self._event_editor.get_items()
+        self._edits[self._act_index] = {
+            "elite": self._elite_editor.get_items(),
+            "normal": self._normal_editor.get_items(),
+            "event": self._event_editor.get_items(),
+        }
+
+    def apply(self, data: CurrentRunData) -> None:
+        self._stash_current()
+        for act_index, patch in self._edits.items():
+            if act_index >= len(data.acts):
+                continue
+            rooms = data.acts[act_index].rooms
+            rooms.elite_encounter_ids = patch["elite"]
+            rooms.normal_encounter_ids = patch["normal"]
+            rooms.event_ids = patch["event"]
+            rooms.__pydantic_fields_set__.update(
+                {"elite_encounter_ids", "normal_encounter_ids", "event_ids"})
 
 
 class OddsRngTab(ctk.CTkScrollableFrame):
