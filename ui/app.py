@@ -1,11 +1,13 @@
 """主窗口框架 + 侧边栏导航 + 存档选择。"""
 
+import json
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Any
 
 import customtkinter as ctk
 
+from cloud_saves import cloud_overwrite_warning
 from core import (
     SaveProfile,
     check_schema_version,
@@ -343,21 +345,89 @@ class App(ctk.CTk):
             return
 
         saved_files: list[str] = []
-
-        try:
-            save_progress(self._data, self._save_path)
-            saved_files.append(f"progress: {self._save_path.with_suffix('.save.bak')}")
-        except Exception as e:
-            messagebox.showerror("保存失败", f"progress 写入失败:\n{e}")
-            return
-
-        # 保存 current_run（如果已加载）
+        targets: list[tuple[str, Path, object, object]] = []
+        if self._data is not None and self._save_path is not None:
+            targets.append(("progress", self._save_path, save_progress, self._data))
         if self._run_data and self._run_path:
-            try:
-                save_current_run(self._run_data, self._run_path)
-                saved_files.append(f"current_run: {self._run_path.with_suffix('.save.bak')}")
-            except Exception as e:
-                messagebox.showerror("保存失败", f"current_run 写入失败:\n{e}")
+            targets.append(("current_run", self._run_path, save_current_run, self._run_data))
+
+        # ── 写前检查：游戏是否还在运行 ──
+        # 游戏进程会从内存回写存档，直接覆盖掉本次修改
+        if self._game_running():
+            if not messagebox.askyesno(
+                "游戏似乎仍在运行",
+                "检测到《杀戮尖塔 2》进程仍在运行。\n\n"
+                "游戏会从内存回写存档，很可能把这次的修改覆盖掉。\n"
+                "建议先完全退出游戏再保存。\n\n"
+                "仍要继续保存吗？",
+            ):
                 return
 
-        messagebox.showinfo("成功", "存档已保存\n备份:\n" + "\n".join(saved_files))
+        # ── 写前检查：Steam 云存档是否会造成冲突 ──
+        cloud_conflicts: list[str] = []
+        for _label, path, _saver, _data in targets:
+            try:
+                warn = cloud_overwrite_warning(path)
+            except Exception:
+                warn = None
+            if warn:
+                cloud_conflicts.append(warn)
+
+        try:
+            for label, path, saver, data in targets:
+                saver(data, path)
+                saved_files.append(f"{label}: {path.with_suffix('.save.bak')}")
+        except Exception as e:
+            messagebox.showerror("保存失败", f"写入失败:\n{e}")
+            return
+
+        # ── 写后校验：回读文件，确认改动真的落盘了 ──
+        verify_problems = self._verify_saved(targets)
+
+        message = "存档已保存\n备份:\n" + "\n".join(saved_files)
+        if verify_problems:
+            message += "\n\n⚠ 保存后校验发现问题：\n" + "\n".join(verify_problems)
+        if cloud_conflicts:
+            message += "\n\n" + "\n\n".join(cloud_conflicts)
+        messagebox.showinfo("成功" if not verify_problems else "已保存（请留意提示）", message)
+
+    @staticmethod
+    def _game_running() -> bool:
+        """检测游戏进程是否在运行（失败时按"未运行"处理，不阻塞保存）。"""
+        try:
+            import subprocess
+
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq SlayTheSpire2.exe", "/NH"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return "SlayTheSpire2.exe" in (out.stdout or "")
+        except Exception:
+            return False
+
+    def _verify_saved(self, targets: list[tuple[str, Path, object, object]]) -> list[str]:
+        """回读刚写出的文件，确认本地内容与内存中的模型一致。
+
+        能抓到的典型情况：写盘后被其它程序（如游戏进程或云同步）立刻覆盖。
+        """
+        problems: list[str] = []
+        for label, path, _saver, data in targets:
+            try:
+                on_disk = json.loads(path.read_text(encoding="utf-8"))
+                expected = json.loads(
+                    json.dumps(data.model_dump(mode="json", exclude_unset=True),
+                               ensure_ascii=False))
+            except Exception as e:
+                problems.append(f"{label}: 回读失败（{e}）")
+                continue
+            if on_disk != expected:
+                problems.append(
+                    f"{label}: 磁盘内容与刚保存的不一致，可能已被其它程序覆盖")
+            if path.with_suffix(".save.backup").exists():
+                try:
+                    if path.read_bytes() != path.with_suffix(".save.backup").read_bytes():
+                        problems.append(f"{label}: 主文件与 .save.backup 内容不一致")
+                except OSError:
+                    pass
+        return problems

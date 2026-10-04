@@ -33,6 +33,10 @@ env/
 .DS_Store
 Thumbs.db
 
+# 第三方程序在项目目录留下的日志（例如输入法）
+debug.log
+*.log
+
 # 测试用存档（不提交真实存档）
 *.save
 *.save.backup
