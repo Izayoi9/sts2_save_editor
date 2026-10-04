@@ -49,6 +49,9 @@ progress.txt
 # 属游戏素材，不纳入版本库）
 tools/localization_zh/
 
+# 游戏素材整理文件（附魔数据表等）：仅供本地查阅，不纳入版本库
+ENCHANTMENT.txt
+
 # 本机 Mod 角色名扫描缓存（因机器而异，且可随时重新扫描生成）
 character_names_cache.json
 *.json.bak
