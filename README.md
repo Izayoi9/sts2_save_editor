@@ -36,7 +36,7 @@
 
 前往 [Releases](../../releases) 下载 `STS2_SaveEditor_vX.Y.Z.zip`，**解压后双击文件夹里的 `STS2_SaveEditor.exe`** 即可运行。
 
-> 注意：从 v1.4.4 起改为「文件夹 + zip」形式，不再是单个 exe。
+> 注意：从 v1.4.5 起改为「文件夹 + zip」形式，不再是单个 exe。
 >
 > 原因：此前的单文件（onefile）版本每次启动都要先把内容解包到
 > `%TEMP%\_MEIxxxxx`，这一步在部分机器上会被安全软件或系统策略拦下，
@@ -70,6 +70,26 @@ pip install pyinstaller
 python -m PyInstaller STS2_SaveEditor.spec --noconfirm --clean
 # 产物在 dist/STS2_SaveEditor/ ，整个目录即为发布内容
 ```
+
+### 如果出现「Windows 已保护你的电脑」
+
+这是 **Microsoft Defender SmartScreen** 的提示，不是查毒结果，也不是程序损坏。出现的原因是：
+
+- exe **没有数字签名**（代码签名证书需付费购买），Windows 无法确认发布者身份
+- 文件刚下载自带「来自 Internet」标记，且下载量少、尚无信誉积累
+
+**处理方法**（任选其一）：
+
+1. 点弹窗里的「**更多信息**」，出现「**仍要运行**」按钮后点击即可
+2. 先解除文件锁定：右键 zip → 属性 → 勾选「解除锁定」→ 确定，再解压
+3. PowerShell 解除锁定：
+   ```powershell
+   Get-ChildItem -Recurse | Unblock-File
+   ```
+
+本项目是开源工具，代码全部公开可查，你也可以从源码运行（方式二）或自行打包，完全不依赖发布的可执行文件。
+
+> 说明：v1.4.5 起已为 exe 补充版本资源（产品名、版本号、版权），使属性页不再显示为空白；这能降低误报面，但**无法完全免除** SmartScreen 提示——彻底消除只能靠购买代码签名证书。
 
 ## 存档位置
 
@@ -134,6 +154,16 @@ sts2_save_editor/
 
 ## 更新日志
 
+### v1.4.5
+
+- **修复启动报错 `Could not create temporary directory!`**：打包方式由单文件（onefile）改为**单目录（onedir）**。
+
+  单文件版把全部依赖压进一个 exe，每次启动都要先解包到 `%TEMP%\_MEIxxxxx`；这一步在部分机器上会被安全软件或系统策略拦下，程序直接无法启动。改为单目录后，依赖放在 exe 同级的 `_internal` 目录，**启动时不创建任何临时目录**，从根上避免该问题，启动也更快、被杀软误报的概率更低。
+
+  **发布形式随之变化**：Release 资产从单个 `STS2_SaveEditor.exe` 变为 `STS2_SaveEditor_vX.Y.Z.zip`，解压后双击文件夹内的 exe 运行。注意 `STS2_SaveEditor.exe` 与 `_internal` 必须保持在同一层，不能只把 exe 单独拷出来。
+
+- **补充 exe 版本资源**：此前 exe 的属性页里公司名/产品名/版本号全为空，Windows 只能显示「未知发布者」，会加重 Microsoft Defender SmartScreen 的拦截倾向。现在打包时会自动读取 `__version__.py` 生成版本资源（产品名、版本号、版权等），与程序版本号始终一致。`STS2_SaveEditor.spec` 已相应改写为 EXE + COLLECT 结构。
+
 ### v1.4.0
 
 **适配游戏更新后的存档结构。**
@@ -172,16 +202,6 @@ sts2_save_editor/
   - 全盘扫描实测约 0.3 秒，命中缓存后瞬时；任何一步失败都逐级回退，不影响使用
   - 说明：Mod 角色没有进入游戏的 `characters` 本地化表（游戏日志可见 `Key '...' not found in table 'characters'`），**游戏本体界面也是显示内部 ID 的**。所以准确中文名只能来自 Mod 作者自己的资源包
 - **新增 `tests/test_character_name.py`**：不依赖任何真实 Mod，用临时构造的假 `.pck` 验证扫描器认名字、拒长文本、只收中文；并断言译名表里**不存在**硬编码的 Mod 角色条目
-
-### v1.4.4
-
-- **修复启动报错 `Could not create temporary directory!`**：打包方式由单文件（onefile）改为**单目录（onedir）**。
-
-  单文件版把全部依赖压进一个 exe，每次启动都要先解包到 `%TEMP%\_MEIxxxxx`；这一步在部分机器上会被安全软件或系统策略拦下，程序直接无法启动。改为单目录后，依赖放在 exe 同级的 `_internal` 目录，**启动时不创建任何临时目录**，从根上避免该问题，启动也更快、被杀软误报的概率更低。
-
-  **发布形式随之变化**：Release 资产从单个 `STS2_SaveEditor.exe` 变为 `STS2_SaveEditor_vX.Y.Z.zip`，解压后双击文件夹内的 exe 运行。注意 `STS2_SaveEditor.exe` 与 `_internal` 必须保持在同一层，不能只把 exe 单独拷出来。
-
-  `STS2_SaveEditor.spec` 已相应改写为 EXE + COLLECT 结构。
 
 ### v1.4.3
 
