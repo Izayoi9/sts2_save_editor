@@ -32,26 +32,15 @@
 
 ## 安装与使用
 
-### 方式一：下载打包版（推荐）
+### 方式一：直接下载可执行文件（推荐）
 
-前往 [Releases](../../releases) 下载 `STS2_SaveEditor_vX.Y.Z.zip`，**解压后双击文件夹里的 `STS2_SaveEditor.exe`** 即可运行。
-
-> 注意：从 v1.4.4 起改为「文件夹 + zip」形式，不再是单个 exe。
->
-> 原因：此前的单文件（onefile）版本每次启动都要先把内容解包到
-> `%TEMP%\_MEIxxxxx`，这一步在部分机器上会被安全软件或系统策略拦下，
-> 直接弹出「Could not create temporary directory!」而无法启动。
-> 现改为单目录形式，依赖放在 exe 同级的 `_internal` 目录里，
-> **启动时不创建任何临时目录**，从根上避免该问题，启动也更快。
->
-> 解压后请保持文件夹结构完整（`STS2_SaveEditor.exe` 与 `_internal`
-> 必须在同一层），不要只把 exe 单独拷出来。
+前往 [Releases](../../releases) 下载 `STS2_SaveEditor.exe`，双击运行即可。
 
 ### 方式二：从源码运行
 
 ```bash
 # 克隆仓库
-git clone https://github.com/Izayoi9/sts2_save_editor.git
+git clone https://github.com/YOUR_USERNAME/sts2_save_editor.git
 cd sts2_save_editor
 
 # 安装依赖
@@ -62,14 +51,6 @@ python main.py
 ```
 
 **环境要求：** Python 3.10+
-
-### 自行打包
-
-```bash
-pip install pyinstaller
-python -m PyInstaller STS2_SaveEditor.spec --noconfirm --clean
-# 产物在 dist/STS2_SaveEditor/ ，整个目录即为发布内容
-```
 
 ## 存档位置
 
@@ -172,16 +153,6 @@ sts2_save_editor/
   - 全盘扫描实测约 0.3 秒，命中缓存后瞬时；任何一步失败都逐级回退，不影响使用
   - 说明：Mod 角色没有进入游戏的 `characters` 本地化表（游戏日志可见 `Key '...' not found in table 'characters'`），**游戏本体界面也是显示内部 ID 的**。所以准确中文名只能来自 Mod 作者自己的资源包
 - **新增 `tests/test_character_name.py`**：不依赖任何真实 Mod，用临时构造的假 `.pck` 验证扫描器认名字、拒长文本、只收中文；并断言译名表里**不存在**硬编码的 Mod 角色条目
-
-### v1.4.4
-
-- **修复启动报错 `Could not create temporary directory!`**：打包方式由单文件（onefile）改为**单目录（onedir）**。
-
-  单文件版把全部依赖压进一个 exe，每次启动都要先解包到 `%TEMP%\_MEIxxxxx`；这一步在部分机器上会被安全软件或系统策略拦下，程序直接无法启动。改为单目录后，依赖放在 exe 同级的 `_internal` 目录，**启动时不创建任何临时目录**，从根上避免该问题，启动也更快、被杀软误报的概率更低。
-
-  **发布形式随之变化**：Release 资产从单个 `STS2_SaveEditor.exe` 变为 `STS2_SaveEditor_vX.Y.Z.zip`，解压后双击文件夹内的 exe 运行。注意 `STS2_SaveEditor.exe` 与 `_internal` 必须保持在同一层，不能只把 exe 单独拷出来。
-
-  `STS2_SaveEditor.spec` 已相应改写为 EXE + COLLECT 结构。
 
 ### v1.4.3
 
